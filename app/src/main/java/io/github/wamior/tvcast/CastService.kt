@@ -109,8 +109,14 @@ class CastService : Service() {
             setAttribute("vv", "2")
         }
         val l = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(i: NsdServiceInfo) = Log.i(TAG, "mDNS registered ${i.serviceName}")
-            override fun onRegistrationFailed(i: NsdServiceInfo, code: Int) = Log.e(TAG, "mDNS failed $code")
+            override fun onServiceRegistered(i: NsdServiceInfo) {
+                Log.i(TAG, "mDNS registered ${i.serviceName}")
+            }
+
+            override fun onRegistrationFailed(i: NsdServiceInfo, code: Int) {
+                Log.e(TAG, "mDNS failed $code")
+            }
+
             override fun onServiceUnregistered(i: NsdServiceInfo) {}
             override fun onUnregistrationFailed(i: NsdServiceInfo, code: Int) {}
         }
