@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -15,18 +16,24 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var status: TextView
     private lateinit var grant: Button
+    private lateinit var mode: Button
 
     private val refresh = object : Runnable {
         override fun run() {
             status.text = "Address: ${CastStatus.ip()}\n\n" +
-                "AirPlay (video): ${CastStatus.airplay}\n" +
+                "AirPlay: ${CastStatus.airplay}\n" +
                 "DLNA / UPnP: ${CastStatus.dlna}\n" +
                 "Discovery (mDNS): ${CastStatus.discovery}\n\n" +
-                "AirPlay mirroring and Google Cast: not implemented yet"
-            grant.visibility = if (Settings.canDrawOverlays(this@MainActivity) || !canOpenOverlaySettings()) {
-                android.view.View.GONE
+                "Google Cast: not implemented"
+            mode.text = if (Config.mode(this@MainActivity) == "mirror") {
+                "AirPlay mode: screen mirroring (press to switch to video URL)"
             } else {
-                android.view.View.VISIBLE
+                "AirPlay mode: video URL (press to switch to screen mirroring)"
+            }
+            grant.visibility = if (Settings.canDrawOverlays(this@MainActivity) || !canOpenOverlaySettings()) {
+                View.GONE
+            } else {
+                View.VISIBLE
             }
             handler.postDelayed(this, 1000)
         }
@@ -38,11 +45,17 @@ class MainActivity : Activity() {
         findViewById<TextView>(R.id.title).text = Config.deviceName(this)
         status = findViewById(R.id.status)
         grant = findViewById(R.id.grant)
-        grant.setOnClickListener {
-            startActivity(overlaySettingsIntent())
+        mode = findViewById(R.id.mode)
+        grant.setOnClickListener { startActivity(overlaySettingsIntent()) }
+        mode.setOnClickListener {
+            Config.setMode(this, if (Config.mode(this) == "mirror") "video" else "mirror")
+            CastStatus.airplay = "restarting"
+            stopService(Intent(this, CastService::class.java))
+            // Ports and mDNS records are released asynchronously; give them a moment before starting again.
+            handler.postDelayed({ startReceiver() }, 1500)
         }
         PlaybackHub.init(this)
-        ContextCompat.startForegroundService(this, Intent(this, CastService::class.java))
+        startReceiver()
     }
 
     override fun onResume() {
@@ -53,6 +66,10 @@ class MainActivity : Activity() {
     override fun onPause() {
         handler.removeCallbacks(refresh)
         super.onPause()
+    }
+
+    private fun startReceiver() {
+        ContextCompat.startForegroundService(this, Intent(this, CastService::class.java))
     }
 
     private fun overlaySettingsIntent() =

@@ -13,6 +13,16 @@ object Config {
     fun deviceName(ctx: Context): String =
         prefs(ctx).getString("name", null) ?: "TV Cast (${Build.MODEL})"
 
+    /** "mirror" = AirPlay screen mirroring (phones show "Screen Mirroring"); "video" = legacy URL video hand-off. */
+    fun mode(ctx: Context): String = prefs(ctx).getString("mode", null) ?: "mirror"
+
+    fun setMode(ctx: Context, mode: String) {
+        prefs(ctx).edit().putString("mode", mode).apply()
+    }
+
+    fun deviceIdBytes(ctx: Context): ByteArray =
+        deviceId(ctx).split(':').map { it.toInt(16).toByte() }.toByteArray()
+
     fun uuid(ctx: Context): String {
         val p = prefs(ctx)
         return p.getString("uuid", null) ?: UUID.randomUUID().toString().also {

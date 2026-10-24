@@ -12,7 +12,10 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.2.0"
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+        }
     }
 
     // Public sideload-only key (committed on purpose) so every build is signed the same and updates install over each other.
@@ -22,6 +25,15 @@ android {
             storePassword = "tvairplay"
             keyAlias = "tvairplay"
             keyPassword = "tvairplay"
+        }
+    }
+
+    buildFeatures {
+        prefab = true
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
         }
     }
 
@@ -47,4 +59,5 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("com.googlecode.plist:dd-plist:1.28")
+    implementation("com.android.ndk.thirdparty:openssl:1.1.1q-beta-1")
 }

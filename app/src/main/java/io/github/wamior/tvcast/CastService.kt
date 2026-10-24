@@ -13,6 +13,8 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import io.github.wamior.tvcast.mirror.AirPlayNative
+import io.github.wamior.tvcast.mirror.MirrorHub
 import io.github.wamior.tvcast.net.AIRPLAY_FEATURES
 import io.github.wamior.tvcast.net.AirPlayServer
 import io.github.wamior.tvcast.net.DlnaRenderer
@@ -31,7 +33,8 @@ object CastStatus {
 
 class CastService : Service() {
     private var dlna: DlnaRenderer? = null
-    private var airplay: AirPlayServer? = null
+    private var airplayVideo: AirPlayServer? = null
+    private var mirrorRunning = false
     private var multicastLock: WifiManager.MulticastLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private val nsdListeners = mutableListOf<NsdManager.RegistrationListener>()
@@ -44,6 +47,7 @@ class CastService : Service() {
         if (!started) {
             started = true
             PlaybackHub.init(this)
+            MirrorHub.init(this)
             Thread { startAll() }.start()
         }
         return START_STICKY
@@ -52,7 +56,8 @@ class CastService : Service() {
     override fun onDestroy() {
         started = false
         runCatching { dlna?.stop() }
-        runCatching { airplay?.stop() }
+        runCatching { airplayVideo?.stop() }
+        if (mirrorRunning) runCatching { AirPlayNative.stop() }
         val nsd = getSystemService(Context.NSD_SERVICE) as NsdManager
         nsdListeners.forEach { runCatching { nsd.unregisterService(it) } }
         nsdListeners.clear()
@@ -89,32 +94,52 @@ class CastService : Service() {
 
         CastStatus.dlna = runCatching { DlnaRenderer(this).also { it.start(); dlna = it } }
             .fold({ "listening" }, { Log.e(TAG, "dlna", it); "error: ${it.message}" })
-        CastStatus.airplay = runCatching { AirPlayServer(this).also { it.start(); airplay = it } }
-            .fold({ "listening" }, { Log.e(TAG, "airplay", it); "error: ${it.message}" })
-        CastStatus.discovery = runCatching { registerMdns() }
-            .fold({ "advertising" }, { Log.e(TAG, "mdns", it); "error: ${it.message}" })
+
+        if (Config.mode(this) == "mirror") {
+            CastStatus.airplay = "starting (mirroring)"
+            CastStatus.discovery = runCatching { startMirror() }
+                .fold({ "advertising" }, { Log.e(TAG, "mirror", it); "error: ${it.message}" })
+            CastStatus.airplay = if (mirrorRunning) "screen mirroring" else CastStatus.discovery
+        } else {
+            CastStatus.airplay = runCatching { AirPlayServer(this).also { it.start(); airplayVideo = it } }
+                .fold({ "video URL receiver" }, { Log.e(TAG, "airplay", it); "error: ${it.message}" })
+            CastStatus.discovery = runCatching { registerLegacyMdns() }
+                .fold({ "advertising" }, { Log.e(TAG, "mdns", it); "error: ${it.message}" })
+        }
     }
 
-    private fun registerMdns() {
+    private fun startMirror() {
+        val port = AirPlayNative.start(
+            MirrorHub,
+            Config.deviceName(this),
+            Config.deviceIdBytes(this),
+            Config.deviceId(this),
+            filesDir.resolve("airplay_key").absolutePath,
+        )
+        if (port <= 0) error("native AirPlay start failed ($port)")
+        mirrorRunning = true
+        val s = AirPlayNative.services()
+        register(s[0]!!, "_raop._tcp", port, s[1]!!)
+        register(s[2]!!, "_airplay._tcp", port, s[3]!!)
+    }
+
+    private fun register(name: String, type: String, port: Int, txt: String) {
         val nsd = getSystemService(Context.NSD_SERVICE) as NsdManager
         val info = NsdServiceInfo().apply {
-            serviceName = Config.deviceName(this@CastService)
-            serviceType = "_airplay._tcp"
-            port = Config.AIRPLAY_PORT
-            setAttribute("deviceid", Config.deviceId(this@CastService))
-            setAttribute("features", "0x${AIRPLAY_FEATURES.toString(16)}")
-            setAttribute("model", "AppleTV3,2")
-            setAttribute("srcvers", "220.68")
-            setAttribute("flags", "0x4")
-            setAttribute("vv", "2")
+            serviceName = name
+            serviceType = type
+            this.port = port
+            txt.lineSequence().filter { it.contains('=') }.forEach {
+                setAttribute(it.substringBefore('='), it.substringAfter('='))
+            }
         }
         val l = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(i: NsdServiceInfo) {
-                Log.i(TAG, "mDNS registered ${i.serviceName}")
+                Log.i(TAG, "mDNS registered $type ${i.serviceName}")
             }
 
             override fun onRegistrationFailed(i: NsdServiceInfo, code: Int) {
-                Log.e(TAG, "mDNS failed $code")
+                Log.e(TAG, "mDNS $type failed $code")
             }
 
             override fun onServiceUnregistered(i: NsdServiceInfo) {}
@@ -122,5 +147,14 @@ class CastService : Service() {
         }
         nsdListeners += l
         nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, l)
+    }
+
+    private fun registerLegacyMdns() {
+        register(
+            Config.deviceName(this), "_airplay._tcp", Config.AIRPLAY_PORT,
+            "deviceid=${Config.deviceId(this)}\n" +
+                "features=0x${AIRPLAY_FEATURES.toString(16)}\n" +
+                "model=AppleTV3,2\nsrcvers=220.68\nflags=0x4\nvv=2\n",
+        )
     }
 }
