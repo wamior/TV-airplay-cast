@@ -16,6 +16,12 @@ android {
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
         }
+        externalNativeBuild {
+            cmake {
+                // The prefab OpenSSL package is built against the shared C++ runtime.
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
     }
 
     // Public sideload-only key (committed on purpose) so every build is signed the same and updates install over each other.
