@@ -15,9 +15,20 @@ android {
         versionName = "0.1.0"
     }
 
+    // Public sideload-only key (committed on purpose) so every build is signed the same and updates install over each other.
+    signingConfigs {
+        create("shared") {
+            storeFile = rootProject.file("keystore/release.jks")
+            storePassword = "tvairplay"
+            keyAlias = "tvairplay"
+            keyPassword = "tvairplay"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("shared")
         }
     }
     compileOptions {

@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,9 +20,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
-      - name: Assemble debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Assemble release APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+      - name: Name the APK
+        run: cp app/build/outputs/apk/release/app-release.apk tv-airplay.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: tv-airplay-cast-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: tv-airplay
+          path: tv-airplay.apk
+      - name: Publish release
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v0.1.${{ github.run_number }}" tv-airplay.apk \
+            --title "TV AirPlay Cast build ${{ github.run_number }}" \
+            --notes "Automated build of ${{ github.sha }}" --latest
