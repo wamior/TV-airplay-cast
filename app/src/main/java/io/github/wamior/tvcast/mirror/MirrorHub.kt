@@ -88,16 +88,20 @@ object MirrorHub : AirPlayNative.Listener {
     override fun onVideoFrame(data: ByteArray, h265: Boolean, ntpNs: Long) { synchronized(lock) {
         videoFrames++
         launchUi()
-        if (isConfigFrame(data, h265)) {
+        // The native layer marks undecryptable frames by setting the first byte to 1 (a valid frame starts with 0).
+        if (data.isEmpty() || data[0].toInt() == 1) return
+        // SPS+PPS are prepended to the first slice packet, so one packet is parameter sets plus an IDR frame.
+        val parts = splitConfig(data, h265)
+        if (parts != null) {
             val old = configFrame
-            if (old == null || !old.contentEquals(data)) {
-                configFrame = data
+            if (old == null || !old.contentEquals(parts.first)) {
+                configFrame = parts.first
                 stopVideo()
                 gop.clear()
                 gopBytes = 0
                 gopValid = false
             }
-            return
+            if (!parts.second) return
         }
         val idr = hasIdr(data, h265)
         if (idr) {
@@ -300,10 +304,24 @@ object MirrorHub : AirPlayNative.Listener {
         MirrorActivity.finishIfOpen()
     } }
 
-    private fun isConfigFrame(data: ByteArray, h265: Boolean): Boolean {
-        if (data.size < 5) return false
-        val nal = data[4].toInt()
-        return if (h265) ((nal shr 1) and 0x3f) == 32 else (nal and 0x1f) == 7
+    /**
+     * If the packet starts with an SPS, returns (parameter sets, packet also carries slice data); null otherwise.
+     * Only H.264 is handled; HEVC packets are passed through unchanged.
+     */
+    private fun splitConfig(data: ByteArray, h265: Boolean): Pair<ByteArray, Boolean>? {
+        if (h265 || data.size < 5) return null
+        if ((data[4].toInt() and 0x1f) != 7) return null
+        var i = 4
+        while (i + 4 < data.size) {
+            if (data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 0 && data[i + 3].toInt() == 1) {
+                val type = data[i + 4].toInt() and 0x1f
+                if (type == 1 || type == 5) return Pair(data.copyOfRange(0, i), true)
+                i += 4
+            } else {
+                i++
+            }
+        }
+        return Pair(data, false)
     }
 
     private fun startVideo(cfg: ByteArray) {
