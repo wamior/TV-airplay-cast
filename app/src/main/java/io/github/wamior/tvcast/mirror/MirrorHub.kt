@@ -13,6 +13,7 @@ import android.view.Surface
 import kotlin.concurrent.thread
 
 private const val TAG = "TVCast.Mirror"
+private const val MAX_GOP_BYTES = 24 * 1024 * 1024
 
 /**
  * Receives decrypted H.264 and AAC frames from the native AirPlay stack and plays them with MediaCodec.
@@ -38,12 +39,20 @@ object MirrorHub : AirPlayNative.Listener {
 
     @Volatile var videoFrames = 0
     @Volatile var audioFrames = 0
+    @Volatile var framesOut = 0
     @Volatile var decoder = "idle"
     val log = java.util.concurrent.ConcurrentLinkedDeque<String>()
 
+    /** Frames since the last key frame: the TV activity (and its surface) appears after the first key frame was sent. */
+    private class Frame(val data: ByteArray, val ptsUs: Long)
+
+    private val gop = ArrayList<Frame>()
+    private var gopBytes = 0
+    private var gopValid = false
+
     fun summary(): String =
-        "video frames: $videoFrames, audio frames: $audioFrames, ${videoW}x$videoH\nvideo decoder: $decoder\n" +
-            log.toList().takeLast(6).joinToString("\n")
+        "video frames in: $videoFrames, decoded: $framesOut, audio frames: $audioFrames, ${videoW}x$videoH\n" +
+            "video decoder: $decoder\n" + log.toList().takeLast(6).joinToString("\n")
 
     fun init(context: Context) {
         app = context.applicationContext
@@ -51,7 +60,8 @@ object MirrorHub : AirPlayNative.Listener {
 
     fun attachSurface(s: Surface) { synchronized(lock) {
         surface = s
-        configFrame?.let { startVideo(it) }
+        val cfg = configFrame
+        if (cfg != null && gopValid && gop.isNotEmpty()) startVideo(cfg)
     } }
 
     fun detachSurface() { synchronized(lock) {
@@ -79,14 +89,47 @@ object MirrorHub : AirPlayNative.Listener {
         videoFrames++
         launchUi()
         if (isConfigFrame(data, h265)) {
-            configFrame = data
-            if (video != null) stopVideo()
+            val old = configFrame
+            if (old == null || !old.contentEquals(data)) {
+                configFrame = data
+                stopVideo()
+                gop.clear()
+                gopBytes = 0
+                gopValid = false
+            }
+            return
         }
-        if (video == null) {
-            val cfg = configFrame ?: run { decoder = "waiting for SPS/PPS"; return }
-            if (surface != null) startVideo(cfg) else return
+        val idr = hasIdr(data, h265)
+        if (idr) {
+            gop.clear()
+            gopBytes = 0
+            gopValid = true
         }
-        val codec = video ?: return
+        if (!gopValid) {
+            if (video == null) decoder = "waiting for key frame"
+            return
+        }
+        val running = video
+        gop.add(Frame(data, ntpNs / 1000))
+        gopBytes += data.size
+        if (gopBytes > MAX_GOP_BYTES) {
+            gop.clear()
+            gopBytes = 0
+            gopValid = false
+        }
+        if (running != null) {
+            feed(running, data, ntpNs / 1000)
+            return
+        }
+        val cfg = configFrame
+        when {
+            cfg == null -> decoder = "waiting for SPS/PPS"
+            surface == null -> decoder = "waiting for surface"
+            else -> startVideo(cfg)
+        }
+    } }
+
+    private fun feed(codec: MediaCodec, data: ByteArray, ptsUs: Long) {
         try {
             val idx = codec.dequeueInputBuffer(20_000)
             if (idx >= 0) {
@@ -94,13 +137,36 @@ object MirrorHub : AirPlayNative.Listener {
                 buf.clear()
                 if (data.size > buf.capacity()) return
                 buf.put(data)
-                codec.queueInputBuffer(idx, 0, data.size, ntpNs / 1000, 0)
+                codec.queueInputBuffer(idx, 0, data.size, ptsUs, 0)
             }
         } catch (e: Exception) {
             Log.w(TAG, "video feed failed", e)
+            log.addLast("video feed failed: ${e.message}")
             stopVideo()
         }
-    } }
+    }
+
+    private fun hasIdr(data: ByteArray, h265: Boolean): Boolean {
+        var i = 0
+        while (i + 4 < data.size) {
+            if (data[i].toInt() == 0 && data[i + 1].toInt() == 0) {
+                val start = when {
+                    data[i + 2].toInt() == 1 -> i + 3
+                    data[i + 2].toInt() == 0 && data[i + 3].toInt() == 1 -> i + 4
+                    else -> -1
+                }
+                if (start in 0 until data.size) {
+                    val b = data[start].toInt()
+                    val type = if (h265) (b shr 1) and 0x3f else b and 0x1f
+                    if (if (h265) type == 19 || type == 20 else type == 5) return true
+                    i = start
+                    continue
+                }
+            }
+            i++
+        }
+        return false
+    }
 
     override fun onAudioFormat(ct: Int) { synchronized(lock) {
         Log.i(TAG, "audio ct=$ct")
@@ -221,6 +287,10 @@ object MirrorHub : AirPlayNative.Listener {
 
     private fun closeAll() { synchronized(lock) {
         decoder = "idle"
+        gop.clear()
+        gopBytes = 0
+        gopValid = false
+        framesOut = 0
         videoFrames = 0
         audioFrames = 0
         stopVideo()
@@ -258,6 +328,7 @@ object MirrorHub : AirPlayNative.Listener {
                 buf.put(cfg)
                 codec.queueInputBuffer(idx, 0, cfg.size, 0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG)
             }
+            for (f in gop.toList()) feed(codec, f.data, f.ptsUs)
         } catch (e: Exception) {
             Log.e(TAG, "video decoder setup failed", e)
             decoder = "setup failed: ${e.message}"
@@ -286,10 +357,15 @@ object MirrorHub : AirPlayNative.Listener {
         try {
             while (true) {
                 val idx = codec.dequeueOutputBuffer(info, 50_000)
-                if (idx >= 0) codec.releaseOutputBuffer(idx, true)
+                if (idx >= 0) {
+                    if (info.size > 0) framesOut++
+                    codec.releaseOutputBuffer(idx, true)
+                } else if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    log.addLast("decoder output ${codec.outputFormat}")
+                }
             }
-        } catch (_: Exception) {
-            // codec was stopped/released
+        } catch (e: Exception) {
+            log.addLast("video output ended: ${e.message}")
         }
     }
 
