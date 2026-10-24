@@ -11,6 +11,7 @@ object AirPlayNative {
         fun onConnection(open: Boolean)
         fun onVolume(db: Float)
         fun onReset(reason: Int)
+        fun onLog(message: String)
     }
 
     init {

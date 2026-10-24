@@ -6,6 +6,10 @@ import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.WindowManager
+import android.os.Handler
+import android.os.Looper
+import android.widget.FrameLayout
+import android.widget.TextView
 import java.lang.ref.WeakReference
 
 /** Full-screen surface that shows the phone's mirrored screen. */
@@ -18,16 +22,43 @@ class MirrorActivity : Activity(), SurfaceHolder.Callback {
         }
     }
 
+    private val handler = Handler(Looper.getMainLooper())
+    private val overlay by lazy {
+        TextView(this).apply {
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0x88000000.toInt())
+            textSize = 14f
+            setPadding(16, 8, 16, 8)
+        }
+    }
+    private val started = System.currentTimeMillis()
+    private val tick = object : Runnable {
+        override fun run() {
+            // Diagnostics for the first 20 seconds of a session.
+            if (System.currentTimeMillis() - started < 20_000) {
+                overlay.text = MirrorHub.summary()
+                handler.postDelayed(this, 500)
+            } else {
+                overlay.visibility = android.view.View.GONE
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val view = SurfaceView(this)
         view.holder.addCallback(this)
-        setContentView(view)
+        val root = FrameLayout(this)
+        root.addView(view)
+        root.addView(overlay)
+        setContentView(root)
+        handler.post(tick)
         current = WeakReference(this)
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(tick)
         if (current?.get() === this) current = null
         super.onDestroy()
     }

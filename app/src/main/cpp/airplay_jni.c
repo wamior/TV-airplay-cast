@@ -26,7 +26,7 @@ static raop_t *g_raop;
 static dnssd_t *g_dnssd;
 static unsigned short g_port;
 
-static jmethodID m_video_size, m_video_frame, m_audio_format, m_audio_frame, m_flush, m_connection, m_volume, m_reset;
+static jmethodID m_video_size, m_video_frame, m_audio_format, m_audio_frame, m_flush, m_connection, m_volume, m_reset, m_log;
 
 static void detach_thread(void *unused)
 {
@@ -189,6 +189,21 @@ static void cb_log(void *cls, int level, const char *msg)
     int prio = level <= LOGGER_ERR ? ANDROID_LOG_ERROR : level == LOGGER_WARNING ? ANDROID_LOG_WARN
              : level <= LOGGER_INFO ? ANDROID_LOG_INFO : ANDROID_LOG_DEBUG;
     __android_log_print(prio, TAG, "%s", msg);
+    if (level > LOGGER_INFO) return;
+    JNIEnv *env = get_env();
+    if (!env || !g_listener) return;
+    char clean[400];
+    size_t n = 0;
+    for (; msg[n] && n < sizeof(clean) - 1; n++) {
+        unsigned char c = (unsigned char) msg[n];
+        clean[n] = (c >= 32 && c < 127) ? (char) c : ' ';
+    }
+    clean[n] = 0;
+    jstring js = (*env)->NewStringUTF(env, clean);
+    if (js) {
+        (*env)->CallVoidMethod(env, g_listener, m_log, js);
+        (*env)->DeleteLocalRef(env, js);
+    }
 }
 
 /* ---- JNI entry points ---------------------------------------------------- */
@@ -226,8 +241,9 @@ Java_io_github_wamior_tvcast_mirror_AirPlayNative_start(JNIEnv *env, jobject thi
     m_connection = (*env)->GetMethodID(env, cls, "onConnection", "(Z)V");
     m_volume = (*env)->GetMethodID(env, cls, "onVolume", "(F)V");
     m_reset = (*env)->GetMethodID(env, cls, "onReset", "(I)V");
+    m_log = (*env)->GetMethodID(env, cls, "onLog", "(Ljava/lang/String;)V");
     if (!m_video_size || !m_video_frame || !m_audio_format || !m_audio_frame || !m_flush || !m_connection
-        || !m_volume || !m_reset) {
+        || !m_volume || !m_reset || !m_log) {
         return -11;
     }
     g_listener = (*env)->NewGlobalRef(env, listener);

@@ -24,7 +24,7 @@ class MainActivity : Activity() {
                 "AirPlay: ${CastStatus.airplay}\n" +
                 "DLNA / UPnP: ${CastStatus.dlna}\n" +
                 "Discovery (mDNS): ${CastStatus.discovery}\n\n" +
-                "Google Cast: not implemented"
+                "Google Cast: not implemented\n\n" + io.github.wamior.tvcast.mirror.MirrorHub.summary()
             mode.text = if (Config.mode(this@MainActivity) == "mirror") {
                 "AirPlay mode: screen mirroring (press to switch to video URL)"
             } else {

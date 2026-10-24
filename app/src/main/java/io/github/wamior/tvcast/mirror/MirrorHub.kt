@@ -36,6 +36,15 @@ object MirrorHub : AirPlayNative.Listener {
     private var track: AudioTrack? = null
     private var volume = 1f
 
+    @Volatile var videoFrames = 0
+    @Volatile var audioFrames = 0
+    @Volatile var decoder = "idle"
+    val log = java.util.concurrent.ConcurrentLinkedDeque<String>()
+
+    fun summary(): String =
+        "video frames: $videoFrames, audio frames: $audioFrames, ${videoW}x$videoH\nvideo decoder: $decoder\n" +
+            log.toList().takeLast(6).joinToString("\n")
+
     fun init(context: Context) {
         app = context.applicationContext
     }
@@ -67,13 +76,14 @@ object MirrorHub : AirPlayNative.Listener {
     } }
 
     override fun onVideoFrame(data: ByteArray, h265: Boolean, ntpNs: Long) { synchronized(lock) {
+        videoFrames++
         launchUi()
         if (isConfigFrame(data, h265)) {
             configFrame = data
             if (video != null) stopVideo()
         }
         if (video == null) {
-            val cfg = configFrame ?: return
+            val cfg = configFrame ?: run { decoder = "waiting for SPS/PPS"; return }
             if (surface != null) startVideo(cfg) else return
         }
         val codec = video ?: return
@@ -143,6 +153,7 @@ object MirrorHub : AirPlayNative.Listener {
     } }
 
     override fun onAudioFrame(data: ByteArray, ct: Int, ntpNs: Long) { synchronized(lock) {
+        audioFrames++
         val codec = audio ?: return
         try {
             val idx = codec.dequeueInputBuffer(10_000)
@@ -183,6 +194,11 @@ object MirrorHub : AirPlayNative.Listener {
         Unit
     } }
 
+    override fun onLog(message: String) {
+        log.addLast(message)
+        while (log.size > 30) log.pollFirst()
+    }
+
     override fun onReset(reason: Int) {
         Log.w(TAG, "connection reset reason=$reason")
         closeAll()
@@ -204,6 +220,9 @@ object MirrorHub : AirPlayNative.Listener {
     }
 
     private fun closeAll() { synchronized(lock) {
+        decoder = "idle"
+        videoFrames = 0
+        audioFrames = 0
         stopVideo()
         stopAudio()
         configFrame = null
@@ -218,7 +237,7 @@ object MirrorHub : AirPlayNative.Listener {
     }
 
     private fun startVideo(cfg: ByteArray) {
-        val s = surface ?: return
+        val s = surface ?: run { decoder = "waiting for surface"; return }
         if (video != null) return
         try {
             val mime = if (videoH265) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
@@ -230,6 +249,7 @@ object MirrorHub : AirPlayNative.Listener {
             codec.configure(fmt, s, null, 0)
             codec.start()
             video = codec
+            decoder = "running ${if (videoH265) "hevc" else "avc"} ${videoW}x$videoH"
             videoThread = thread(name = "mirror-video-out", isDaemon = true) { drainVideo(codec) }
             val idx = codec.dequeueInputBuffer(100_000)
             if (idx >= 0) {
@@ -240,6 +260,7 @@ object MirrorHub : AirPlayNative.Listener {
             }
         } catch (e: Exception) {
             Log.e(TAG, "video decoder setup failed", e)
+            decoder = "setup failed: ${e.message}"
             stopVideo()
         }
     }

@@ -32,5 +32,5 @@ object Config {
 
     /** MAC-style identifier derived from the persistent UUID; AirPlay wants one. */
     fun deviceId(ctx: Context): String =
-        uuid(ctx).replace("-", "").take(12).uppercase().chunked(2).joinToString(":")
+        uuid(ctx).replace("-", "").reversed().take(12).uppercase().chunked(2).joinToString(":")
 }
