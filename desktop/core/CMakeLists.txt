@@ -17,7 +17,7 @@ add_executable(airplay-core airplay_cli.c ${UX_SRC} ${LLHTTP_SRC} ${PLAYFAIR_SRC
 target_include_directories(airplay-core PRIVATE ${UX} ${UX}/llhttp ${UX}/playfair)
 target_compile_definitions(airplay-core PRIVATE
     NOHOLD STANDALONE TARGET_POSIX _REENTRANT WIN32 _WIN32
-    OPENSSL_API_COMPAT=0x10101000L PLIST_210 PLIST_230)
+    OPENSSL_API_COMPAT=0x10101000L PLIST_210 PLIST_230 LIBPLIST_STATIC)
 target_compile_options(airplay-core PRIVATE -O2 -w
     -Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=incompatible-pointer-types)
 
