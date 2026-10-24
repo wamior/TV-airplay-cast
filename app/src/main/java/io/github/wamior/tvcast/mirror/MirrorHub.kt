@@ -40,6 +40,11 @@ object MirrorHub : AirPlayNative.Listener {
     @Volatile var videoFrames = 0
     @Volatile var audioFrames = 0
     @Volatile var framesOut = 0
+
+    /** Visible size of the stream as reported by the decoder; the TV screen letterboxes to it. */
+    @Volatile var displayW = 0
+    @Volatile var displayH = 0
+    @Volatile var onDisplaySize: ((Int, Int) -> Unit)? = null
     @Volatile var decoder = "idle"
     val log = java.util.concurrent.ConcurrentLinkedDeque<String>()
 
@@ -370,6 +375,17 @@ object MirrorHub : AirPlayNative.Listener {
         t?.let { runCatching { it.stop() }; runCatching { it.release() } }
     }
 
+    /** Visible size of the decoded picture (decoders pad to macroblock multiples and report a crop rectangle). */
+    private fun reportDisplaySize(f: MediaFormat) {
+        fun span(lo: String, hi: String, size: String): Int =
+            if (f.containsKey(lo) && f.containsKey(hi)) f.getInteger(hi) - f.getInteger(lo) + 1 else f.getInteger(size)
+        val w = span("crop-left", "crop-right", MediaFormat.KEY_WIDTH)
+        val h = span("crop-top", "crop-bottom", MediaFormat.KEY_HEIGHT)
+        displayW = w
+        displayH = h
+        onDisplaySize?.invoke(w, h)
+    }
+
     private fun drainVideo(codec: MediaCodec) {
         val info = MediaCodec.BufferInfo()
         try {
@@ -379,7 +395,7 @@ object MirrorHub : AirPlayNative.Listener {
                     if (info.size > 0) framesOut++
                     codec.releaseOutputBuffer(idx, true)
                 } else if (idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    log.addLast("decoder output ${codec.outputFormat}")
+                    reportDisplaySize(codec.outputFormat)
                 }
             }
         } catch (e: Exception) {
