@@ -1,35 +1,40 @@
 # TV-airplay-cast
 
-Android TV app (Kotlin) that turns the TV into a wireless receiver for video sent from a phone.
+Receive casts from your phone on an Android TV (APK) or a Windows PC.
+
+Every push to `main` builds and publishes a release with `tv-airplay.apk` and `tv-airplay-desktop.zip`.
 
 ## Status
 
-| Protocol | State |
-|---|---|
-| DLNA / UPnP MediaRenderer (BubbleUPnP, VLC, Windows "Cast to device", most Android gallery apps) | implemented, untested on hardware |
-| AirPlay 1 URL video (`/play`, `/scrub`, `/rate`, `/stop`, `/playback-info`) | implemented, untested on hardware |
-| AirPlay screen mirroring | not implemented (needs the FairPlay handshake + H.264/AAC stream receiver) |
-| Google Cast | not implemented (the real Cast protocol requires Google-signed receiver credentials) |
+| Protocol | Android TV | Windows |
+|---|---|---|
+| AirPlay screen mirroring (H.264 + AAC-ELD/LC audio) | implemented, untested on hardware | implemented (video; audio depends on Chromium's AAC-ELD support), untested |
+| AirPlay video-URL hand-off | optional mode (`AirPlay mode` button), untested | no |
+| DLNA / UPnP MediaRenderer | implemented, untested | implemented, untested |
+| Google Cast | no (the real protocol needs Google-signed receiver credentials) | no |
+| ALAC audio (plain music AirPlay) | no | no |
 
-## Build
+By default the receiver advertises mirroring only (no AirPlay "video" feature), so apps like TikTok mirror the
+screen instead of handing over a video URL that cannot be played.
 
-CI builds a debug APK on every push (Actions -> latest run -> artifact `tv-airplay-cast-debug`).
+## Install
 
-Locally: open the folder in Android Studio, or run `gradle :app:assembleDebug` with the Android SDK installed.
+TV: `adb install tv-airplay.apk`, open the app once (it starts the receiver service) and allow
+"display over other apps" if offered.
 
-## Install on the TV
-
-```
-adb connect <tv-ip>
-adb install app-debug.apk
-```
-
-Open the app once so it starts the receiver service. Grant "display over other apps" if the app offers it
-(needed to open the player when a cast starts while another app is in front).
+PC: unzip `tv-airplay-desktop.zip`, run `TV AirPlay Cast.exe`, allow it through the Windows firewall.
 
 ## Layout
 
-- `PlaybackHub` - one ExoPlayer sink shared by all protocols
-- `net/DlnaRenderer`, `net/SsdpServer`, `net/UpnpServices` - UPnP stack
-- `net/AirPlayServer` - AirPlay HTTP receiver; mDNS advertising lives in `CastService`
-- `net/MiniHttpServer` - tiny HTTP/1.1 server used by both
+- `app/` - Android app (Kotlin). `PlaybackHub` plays DLNA/URL video with ExoPlayer, `mirror/` decodes mirrored
+  frames with MediaCodec. `net/` has the DLNA stack and the legacy AirPlay video receiver.
+- `app/src/main/cpp/` - native AirPlay protocol: the library from [UxPlay](https://github.com/FDH2/UxPlay)
+  (pairing, FairPlay, RAOP/mirroring), libplist, and a JNI bridge (`airplay_jni.c`).
+- `desktop/` - Electron app (DLNA in JS, mirroring via `core/airplay_cli.c`, a small helper process built from
+  the same UxPlay sources).
+
+## License
+
+GPL-3.0-or-later (the UxPlay protocol code is GPL-3.0). libplist is LGPL-2.1.
+The release APK is signed with the key in `keystore/` on purpose: it is a public sideload key so that builds
+update over each other; do not treat the signature as proof of origin.
