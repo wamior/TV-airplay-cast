@@ -14,8 +14,8 @@
 #include "dnssd.h"
 #include "logger.h"
 
-const char *dnssd_android_name(dnssd_t *dnssd_public, int service);
-const char *dnssd_android_text(dnssd_t *dnssd_public, int service);
+const char *dnssd_text_name(dnssd_t *dnssd_public, int service);
+const char *dnssd_text_text(dnssd_t *dnssd_public, int service);
 
 #define TAG "TVCast.Native"
 
@@ -336,10 +336,10 @@ Java_io_github_wamior_tvcast_mirror_AirPlayNative_services(JNIEnv *env, jobject 
     jclass string_class = (*env)->FindClass(env, "java/lang/String");
     jobjectArray out = (*env)->NewObjectArray(env, 4, string_class, NULL);
     if (!g_dnssd) return out;
-    (*env)->SetObjectArrayElement(env, out, 0, (*env)->NewStringUTF(env, dnssd_android_name(g_dnssd, DNSSD_SERVICE_RAOP)));
-    (*env)->SetObjectArrayElement(env, out, 1, (*env)->NewStringUTF(env, dnssd_android_text(g_dnssd, DNSSD_SERVICE_RAOP)));
-    (*env)->SetObjectArrayElement(env, out, 2, (*env)->NewStringUTF(env, dnssd_android_name(g_dnssd, DNSSD_SERVICE_AIRPLAY)));
-    (*env)->SetObjectArrayElement(env, out, 3, (*env)->NewStringUTF(env, dnssd_android_text(g_dnssd, DNSSD_SERVICE_AIRPLAY)));
+    (*env)->SetObjectArrayElement(env, out, 0, (*env)->NewStringUTF(env, dnssd_text_name(g_dnssd, DNSSD_SERVICE_RAOP)));
+    (*env)->SetObjectArrayElement(env, out, 1, (*env)->NewStringUTF(env, dnssd_text_text(g_dnssd, DNSSD_SERVICE_RAOP)));
+    (*env)->SetObjectArrayElement(env, out, 2, (*env)->NewStringUTF(env, dnssd_text_name(g_dnssd, DNSSD_SERVICE_AIRPLAY)));
+    (*env)->SetObjectArrayElement(env, out, 3, (*env)->NewStringUTF(env, dnssd_text_text(g_dnssd, DNSSD_SERVICE_AIRPLAY)));
     return out;
 }
 

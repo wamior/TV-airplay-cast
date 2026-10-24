@@ -1,5 +1,5 @@
 /*
- * Android replacement for UxPlay's lib/dns_sd/dns_sd.c.
+ * Platform-independent replacement for UxPlay's lib/dns_sd/dns_sd.c.
  *
  * Nothing is registered here: the TXT records are only rendered as "key=value\n" text so that the Kotlin side can
  * publish them through NsdManager (Android's own mDNS responder).
@@ -147,13 +147,13 @@ int dnssd_process_service(dnssd_t *dnssd_public, int service)
 }
 
 /* Accessors for the JNI layer. */
-const char *dnssd_android_name(dnssd_t *dnssd_public, int service)
+const char *dnssd_text_name(dnssd_t *dnssd_public, int service)
 {
     dnssd_private_t *p = (dnssd_private_t *) dnssd_public->dnssd_private;
     return service == DNSSD_SERVICE_RAOP ? p->raop_name : p->airplay_name;
 }
 
-const char *dnssd_android_text(dnssd_t *dnssd_public, int service)
+const char *dnssd_text_text(dnssd_t *dnssd_public, int service)
 {
     dnssd_private_t *p = (dnssd_private_t *) dnssd_public->dnssd_private;
     return service == DNSSD_SERVICE_RAOP ? p->raop_text : p->airplay_text;

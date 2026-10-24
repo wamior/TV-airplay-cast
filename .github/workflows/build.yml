@@ -1,4 +1,4 @@
-name: Build APK
+name: Build
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,13 +26,58 @@ jobs:
         run: cp app/build/outputs/apk/release/app-release.apk tv-airplay.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: tv-airplay
+          name: tv-airplay-apk
           path: tv-airplay.apk
+
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-libplist
+            mingw-w64-x86_64-pkgconf
+      - name: Build airplay-core.exe
+        shell: msys2 {0}
+        run: |
+          cmake -S desktop/core -B desktop/core/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build desktop/core/build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Package Electron app
+        working-directory: desktop
+        run: |
+          npm install
+          npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tv-airplay-desktop
+          path: desktop/dist/tv-airplay-desktop.zip
+
+  release:
+    needs: [android, desktop]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tv-airplay-apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: tv-airplay-desktop
       - name: Publish release
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "v0.1.${{ github.run_number }}" tv-airplay.apk \
+          gh release create "v0.2.${{ github.run_number }}" tv-airplay.apk tv-airplay-desktop.zip \
             --title "TV AirPlay Cast build ${{ github.run_number }}" \
             --notes "Automated build of ${{ github.sha }}" --latest
